@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapeador de Columnas & Generador de Prompts</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PapaParse para CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- SheetJS (XLSX) para Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- FontAwesome para Iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        .header-item {
+            transition: all 0.2s ease;
+        }
+
+        .header-item.selected {
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.15);
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .header-item.linked {
+            border-color: #10b981;
+            background-color: rgba(16, 185, 129, 0.1);
+        }
+
+        .svg-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .connection-line {
+            stroke-dasharray: 6;
+            animation: dash 30s linear infinite;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -1000;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Header Navigation -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-blue-600 rounded-xl text-white">
+                    <i class="fa-solid fa-diagram-project text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight text-white">DataBridge AI</h1>
+                    <p class="text-xs text-slate-400">Mapeador de Encabezados & Creador de Prompts</p>
+                </div>
+            </div>
+            
+            <div class="flex gap-2">
+                <button onclick="resetAll()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm transition flex items-center gap-2 border border-slate-700">
+                    <i class="fa-solid fa-rotate-right"></i> Reiniciar
+                </button>
+                <a href="#promptSection" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg shadow-blue-500/20">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Ir al Prompt
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-8">
+        
+        <!-- STEP 1: File Upload Section -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- File A Upload -->
+            <div id="dropZoneA" class="relative bg-slate-900 border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-2xl p-6 transition flex flex-col items-center justify-center text-center cursor-pointer group">
+                <input type="file" id="fileInputA" accept=".csv, .xlsx, .xls" class="absolute inset-0 opacity-0 cursor-pointer" onchange="handleFileSelect(event, 'A')">
+                <div class="p-4 bg-slate-800 group-hover:bg-blue-600/20 rounded-full text-blue-400 group-hover:text-blue-300 transition mb-3">
+                    <i class="fa-solid fa-file-csv text-3xl"></i>
+                </div>
+                <h3 class="font-semibold text-slate-200 text-base" id="fileNameA">Cargar Archivo A (Origen)</h3>
+                <p class="text-xs text-slate-400 mt-1" id="fileInfoA">Arrastra o haz clic para subir (.csv, .xlsx)</p>
+                <span id="badgeA" class="hidden mt-3 px-2.5 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-full text-xs font-medium">Cargado con éxito</span>
+            </div>
+
+            <!-- File B Upload -->
+            <div id="dropZoneB" class="relative bg-slate-900 border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-6 transition flex flex-col items-center justify-center text-center cursor-pointer group">
+                <input type="file" id="fileInputB" accept=".csv, .xlsx, .xls" class="absolute inset-0 opacity-0 cursor-pointer" onchange="handleFileSelect(event, 'B')">
+                <div class="p-4 bg-slate-800 group-hover:bg-emerald-600/20 rounded-full text-emerald-400 group-hover:text-emerald-300 transition mb-3">
+                    <i class="fa-solid fa-file-excel text-3xl"></i>
+                </div>
+                <h3 class="font-semibold text-slate-200 text-base" id="fileNameB">Cargar Archivo B (Destino/Referencia)</h3>
+                <p class="text-xs text-slate-400 mt-1" id="fileInfoB">Arrastra o haz clic para subir (.csv, .xlsx)</p>
+                <span id="badgeB" class="hidden mt-3 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-medium">Cargado con éxito</span>
+            </div>
+        </section>
+
+        <!-- STEP 2: Interactive Mapping Workspace -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4 relative">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-800">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-link text-blue-400"></i> Mapeo de Encabezados Verticals
+                    </h2>
+                    <p class="text-xs text-slate-400">Selecciona un encabezado de la izquierda y enlázalo con su equivalente de la derecha.</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="text-xs bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                        <span id="mappedCount" class="font-bold text-blue-400">0</span> Enlaces Creados
+                    </span>
+                    <button onclick="clearMappings()" class="text-xs text-rose-400 hover:text-rose-300 px-3 py-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 transition">
+                        Limpiar Mapeos
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mapping Canvas Area -->
+            <div id="mappingContainer" class="relative grid grid-cols-2 gap-12 sm:gap-24 md:gap-32 py-4 px-2 min-h-[300px]">
+                
+                <!-- SVG Connections Overlay -->
+                <svg id="svgOverlay" class="svg-overlay">
+                    <!-- Lines dynamically injected here -->
+                </svg>
+
+                <!-- Column Left: File A -->
+                <div class="flex flex-col gap-3 z-20">
+                    <div class="flex justify-between items-center bg-slate-800/80 px-4 py-2.5 rounded-xl border border-slate-700/50">
+                        <span class="font-semibold text-xs text-blue-400 uppercase tracking-wider">Columnas Archivo A</span>
+                        <span class="text-[10px] text-slate-400" id="countHeadersA">0 campos</span>
+                    </div>
+                    <div id="headersContainerA" class="flex flex-col gap-2.5 max-h-[500px] overflow-y-auto pr-2">
+                        <div class="text-center py-12 text-slate-500 text-sm italic">Sube el Archivo A para ver sus columnas</div>
+                    </div>
+                </div>
+
+                <!-- Column Right: File B -->
+                <div class="flex flex-col gap-3 z-20">
+                    <div class="flex justify-between items-center bg-slate-800/80 px-4 py-2.5 rounded-xl border border-slate-700/50">
+                        <span class="font-semibold text-xs text-emerald-400 uppercase tracking-wider">Columnas Archivo B</span>
+                        <span class="text-[10px] text-slate-400" id="countHeadersB">0 campos</span>
+                    </div>
+                    <div id="headersContainerB" class="flex flex-col gap-2.5 max-h-[500px] overflow-y-auto pr-2">
+                        <div class="text-center py-12 text-slate-500 text-sm italic">Sube el Archivo B para ver sus columnas</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEP 3: Mapped Rules & Configurations -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-sliders text-indigo-400"></i> Reglas de Transformación & Mapeo Detallado
+            </h2>
+            <div id="rulesContainer" class="flex flex-col gap-3">
+                <p class="text-sm text-slate-500 italic py-4 text-center">No hay enlaces activos. Haz clic en un encabezado de cada columna para conectarlos.</p>
+            </div>
+        </section>
+
+        <!-- STEP 4: Prompt Generator Settings & Output -->
+        <section id="promptSection" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col gap-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-800">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-code text-purple-400"></i> Prompt Generado para IA
+                    </h2>
+                    <p class="text-xs text-slate-400">Copia este prompt en ChatGPT, Claude o Gemini para procesar/transformar tus datos automáticamente.</p>
+                </div>
+                <button onclick="copyPromptToClipboard()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-emerald-600/20">
+                    <i class="fa-solid fa-copy"></i> Copiar Prompt
+                </button>
+            </div>
+
+            <!-- Configurations for Prompt -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-800/40 p-4 rounded-xl border border-slate-800">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Objetivo de la IA</label>
+                    <select id="promptGoal" onchange="generatePrompt()" class="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="transform">Homologar/Transformar Archivo A al Formato B</option>
+                        <option value="python">Generar Script en Python (Pandas) para Mapeo</option>
+                        <option value="sql">Generar Consulta SQL de Mapeo/UNIFY</option>
+                        <option value="compare">Analizar Discrepancias y Calidad de Datos</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Formato de Salida Esperado</label>
+                    <select id="promptFormat" onchange="generatePrompt()" class="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="csv">Tabla CSV Limpia</option>
+                        <option value="json">Estructura JSON</option>
+                        <option value="code">Código Ejecutable con Comentarios</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Instrucciones Adicionales</label>
+                    <input type="text" id="promptExtra" oninput="generatePrompt()" placeholder="Ej: Ignorar filas con valores nulos..." class="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+            </div>
+
+            <!-- Output Prompt Textarea -->
+            <div class="relative">
+                <textarea id="promptOutput" readonly rows="12" class="w-full bg-slate-950 border border-slate-800 text-emerald-400 font-mono text-xs sm:text-sm p-4 rounded-xl focus:outline-none resize-y leading-relaxed" placeholder="El prompt generado aparecerá aquí automáticamente una vez que enlaces las columnas..."></textarea>
+            </div>
+        </section>
+    </main>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 border border-slate-700 text-slate-200 px-4 py-3 rounded-xl shadow-2xl transition transform translate-y-20 opacity-0 flex items-center gap-3 z-50">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toastMsg" class="text-sm font-medium">Operación realizada</span>
+    </div>
+
+    <script>
+        // Data State
+        const state = {
+            fileA: { name: '', headers: [], samples: {} },
+            fileB: { name: '', headers: [], samples: {} },
+            selectedA: null,
+            selectedB: null,
+            mappings: [] // Array of { id, headerA, headerB, rule }
+        };
+
+        // Window resize listener to redraw connections
+        window.addEventListener('resize', drawConnections);
+        
+        // Scroll listeners to keep lines accurate
+        document.getElementById('headersContainerA').addEventListener('scroll', drawConnections);
+        document.getElementById('headersContainerB').addEventListener('scroll', drawConnections);
+
+        // Helper: Show Toast
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            const toastIcon = document.getElementById('toastIcon');
+
+            toastMsg.innerText = msg;
+            toastIcon.className = isError 
+                ? "fa-solid fa-circle-xmark text-rose-400" 
+                : "fa-solid fa-circle-check text-emerald-400";
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        // File Handler Setup
+        function handleFileSelect(event, fileSource) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const extension = file.name.split('.').pop().toLowerCase();
+            if (fileSource === 'A') {
+                state.fileA.name = file.name;
+                document.getElementById('fileNameA').innerText = file.name;
+            } else {
+                state.fileB.name = file.name;
+                document.getElementById('fileNameB').innerText = file.name;
+            }
+
+            if (extension === 'csv') {
+                parseCSV(file, fileSource);
+            } else if (['xlsx', 'xls'].includes(extension)) {
+                parseExcel(file, fileSource);
+            } else {
+                showToast('Formato de archivo no soportado. Usa CSV o Excel.', true);
+            }
+        }
+
+        // Parse CSV using PapaParse
+        function parseCSV(file, fileSource) {
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                preview: 5,
+                complete: function(results) {
+                    if (results.meta && results.meta.fields) {
+                        processHeadersAndSamples(fileSource, results.meta.fields, results.data);
+                    }
+                },
+                error: function(err) {
+                    showToast("Error al leer el archivo CSV", true);
+                }
+            });
+        }
+
+        // Parse Excel using SheetJS
+        function parseExcel(file, fileSource) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                if (jsonData.length > 0) {
+                    const headers = jsonData[0];
+                    const rows = jsonData.slice(1, 6).map(row => {
+                        let obj = {};
+                        headers.forEach((h, idx) => {
+                            obj[h] = row[idx] || '';
+                        });
+                        return obj;
+                    });
+                    processHeadersAndSamples(fileSource, headers, rows);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Process Headers and Data Samples
+        function processHeadersAndSamples(source, headers, rows) {
+            const samples = {};
+            headers.forEach(h => {
+                samples[h] = rows.map(r => r[h]).filter(v => v !== undefined && v !== '').slice(0, 2).join(', ');
+            });
+
+            if (source === 'A') {
+                state.fileA.headers = headers;
+                state.fileA.samples = samples;
+                document.getElementById('countHeadersA').innerText = `${headers.length} campos`;
+                document.getElementById('badgeA').classList.remove('hidden');
+            } else {
+                state.fileB.headers = headers;
+                state.fileB.samples = samples;
+                document.getElementById('countHeadersB').innerText = `${headers.length} campos`;
+                document.getElementById('badgeB').classList.remove('hidden');
+            }
+
+            renderHeaders();
+            showToast(`Encabezados cargados para Archivo ${source}`);
+        }
+
+        // Render Header Lists
+        function renderHeaders() {
+            const containerA = document.getElementById('headersContainerA');
+            const containerB = document.getElementById('headersContainerB');
+
+            // Render File A Headers
+            if (state.fileA.headers.length > 0) {
+                containerA.innerHTML = state.fileA.headers.map(h => {
+                    const isLinked = state.mappings.some(m => m.headerA === h);
+                    const isSelected = state.selectedA === h;
+                    const sample = state.fileA.samples[h] || 'Sin muestra';
+                    
+                    return `
+                        <div id="item-A-${escapeSelector(h)}" 
+                             onclick="selectHeader('A', '${escapeJsString(h)}')" 
+                             class="header-item border border-slate-700 bg-slate-800/90 hover:border-blue-500/50 p-3 rounded-xl cursor-pointer flex justify-between items-center transition select-none ${isSelected ? 'selected' : ''} ${isLinked ? 'linked' : ''}">
+                            <div class="truncate max-w-[80%]">
+                                <div class="font-medium text-xs sm:text-sm text-slate-200 truncate">${h}</div>
+                                <div class="text-[10px] text-slate-400 truncate mt-0.5">ej: ${sample}</div>
+                            </div>
+                            <i class="fa-solid ${isLinked ? 'fa-check text-emerald-400' : 'fa-circle-dot text-slate-600'} text-xs"></i>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Render File B Headers
+            if (state.fileB.headers.length > 0) {
+                containerB.innerHTML = state.fileB.headers.map(h => {
+                    const isLinked = state.mappings.some(m => m.headerB === h);
+                    const isSelected = state.selectedB === h;
+                    const sample = state.fileB.samples[h] || 'Sin muestra';
+
+                    return `
+                        <div id="item-B-${escapeSelector(h)}" 
+                             onclick="selectHeader('B', '${escapeJsString(h)}')" 
+                             class="header-item border border-slate-700 bg-slate-800/90 hover:border-emerald-500/50 p-3 rounded-xl cursor-pointer flex justify-between items-center transition select-none ${isSelected ? 'selected' : ''} ${isLinked ? 'linked' : ''}">
+                            <i class="fa-solid ${isLinked ? 'fa-check text-emerald-400' : 'fa-circle-dot text-slate-600'} text-xs"></i>
+                            <div class="truncate max-w-[80%] text-right">
+                                <div class="font-medium text-xs sm:text-sm text-slate-200 truncate">${h}</div>
+                                <div class="text-[10px] text-slate-400 truncate mt-0.5">ej: ${sample}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            drawConnections();
+            renderRules();
+            generatePrompt();
+        }
+
+        // Selection & Linking Logic
+        function selectHeader(source, headerName) {
+            if (source === 'A') {
+                state.selectedA = state.selectedA === headerName ? null : headerName;
+            } else {
+                state.selectedB = state.selectedB === headerName ? null : headerName;
+            }
+
+            // Try to create mapping if both are selected
+            if (state.selectedA && state.selectedB) {
+                createMapping(state.selectedA, state.selectedB);
+                state.selectedA = null;
+                state.selectedB = null;
+            }
+
+            renderHeaders();
+        }
+
+        function createMapping(headerA, headerB) {
+            // Remove existing mappings for either header to prevent duplicates
+            state.mappings = state.mappings.filter(m => m.headerA !== headerA && m.headerB !== headerB);
+
+            state.mappings.push({
+                id: Date.now().toString(),
+                headerA: headerA,
+                headerB: headerB,
+                rule: ''
+            });
+
+            document.getElementById('mappedCount').innerText = state.mappings.length;
+            showToast(`Enlazado: ${headerA} ➔ ${headerB}`);
+        }
+
+        function removeMapping(id) {
+            state.mappings = state.mappings.filter(m => m.id !== id);
+            document.getElementById('mappedCount').innerText = state.mappings.length;
+            renderHeaders();
+            showToast('Enlace eliminado');
+        }
+
+        function clearMappings() {
+            state.mappings = [];
+            state.selectedA = null;
+            state.selectedB = null;
+            document.getElementById('mappedCount').innerText = '0';
+            renderHeaders();
+            showToast('Se limpiaron todos los enlaces');
+        }
+
+        function updateRule(id, value) {
+            const mapping = state.mappings.find(m => m.id === id);
+            if (mapping) {
+                mapping.rule = value;
+                generatePrompt();
+            }
+        }
+
+        // Render Dynamic Rules List
+        function renderRules() {
+            const container = document.getElementById('rulesContainer');
+            if (state.mappings.length === 0) {
+                container.innerHTML = `<p class="text-sm text-slate-500 italic py-4 text-center">No hay enlaces activos. Haz clic en un encabezado de cada columna para conectarlos.</p>`;
+                return;
+            }
+
+            container.innerHTML = state.mappings.map(m => `
+                <div class="flex flex-col sm:flex-row items-center gap-3 bg-slate-800/60 border border-slate-700/60 p-3 rounded-xl">
+                    <div class="flex items-center gap-2 text-xs font-semibold w-full sm:w-1/3">
+                        <span class="text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg truncate">${m.headerA}</span>
+                        <i class="fa-solid fa-arrow-right text-slate-500"></i>
+                        <span class="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg truncate">${m.headerB}</span>
+                    </div>
+                    <div class="flex-1 w-full">
+                        <input type="text" 
+                               placeholder="Ej: Convertir a mayúsculas, cambiar formato de fecha YYYY-MM-DD..." 
+                               value="${m.rule || ''}" 
+                               oninput="updateRule('${m.id}', this.value)"
+                               class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg p-2 focus:ring-1 focus:ring-blue-500 outline-none">
+                    </div>
+                    <button onclick="removeMapping('${m.id}')" class="text-slate-500 hover:text-rose-400 p-1.5 transition">
+                        <i class="fa-solid fa-trash-can text-sm"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Draw Dynamic SVG Connection Lines
+        function drawConnections() {
+            const svg = document.getElementById('svgOverlay');
+            const container = document.getElementById('mappingContainer');
+            const containerRect = container.getBoundingClientRect();
+
+            svg.setAttribute('width', containerRect.width);
+            svg.setAttribute('height', containerRect.height);
+
+            let linesHTML = '';
+
+            state.mappings.forEach(m => {
+                const elA = document.getElementById(`item-A-${escapeSelector(m.headerA)}`);
+                const elB = document.getElementById(`item-B-${escapeSelector(m.headerB)}`);
+
+                if (elA && elB) {
+                    const rectA = elA.getBoundingClientRect();
+                    const rectB = elB.getBoundingClientRect();
+
+                    // Calculate relative points inside SVG
+                    const x1 = rectA.right - containerRect.left;
+                    const y1 = rectA.top + rectA.height / 2 - containerRect.top;
+
+                    const x2 = rectB.left - containerRect.left;
+                    const y2 = rectB.top + rectB.height / 2 - containerRect.top;
+
+                    // Cubic Bezier curve
+                    const deltaX = Math.abs(x2 - x1) * 0.5;
+                    const path = `M ${x1} ${y1} C ${x1 + deltaX} ${y1}, ${x2 - deltaX} ${y2}, ${x2} ${y2}`;
+
+                    linesHTML += `
+                        <path d="${path}" stroke="#3b82f6" stroke-width="2.5" fill="none" opacity="0.8" />
+                        <circle cx="${x1}" cy="${y1}" r="4" fill="#3b82f6" />
+                        <circle cx="${x2}" cy="${y2}" r="4" fill="#10b981" />
+                    `;
+                }
+            });
+
+            svg.innerHTML = linesHTML;
+        }
+
+        // Generate AI Prompt
+        function generatePrompt() {
+            const goal = document.getElementById('promptGoal').value;
+            const format = document.getElementById('promptFormat').value;
+            const extra = document.getElementById('promptExtra').value;
+
+            if (state.mappings.length === 0) {
+                document.getElementById('promptOutput').value = "Realiza el mapeo de columnas arriba para construir el prompt personalizado.";
+                return;
+            }
+
+            let goalText = "";
+            if (goal === 'transform') {
+                goalText = `Transformar los datos del **Archivo Origen (${state.fileA.name || 'Archivo A'})** para homologarlos y adaptarlos a la estructura del **Archivo Destino (${state.fileB.name || 'Archivo B'})**.`;
+            } else if (goal === 'python') {
+                goalText = `Escribir un script ejecutable en Python (utilizando Pandas) para automatizar el mapeo y transformación del **Archivo A** hacia la estructura del **Archivo B**.`;
+            } else if (goal === 'sql') {
+                goalText = `Generar una consulta SQL (SELECT/INSERT INTO) que proyecte y transforme los datos de las columnas del **Archivo A** asignándoles los alias del **Archivo B**.`;
+            } else if (goal === 'compare') {
+                goalText = `Analizar la compatibilidad, calidad de datos y posibles inconsistencias entre el **Archivo A** y el **Archivo B** según las equivalencias definidas.`;
+            }
+
+            let prompt = `Actúa como un Ingeniero y Experto en Procesamiento de Datos.\n\n`;
+            prompt += `### OBJETIVO:\n${goalText}\n\n`;
+
+            prompt += `### MAPEO Y EQUIVALENCIA DE ENCABEZADOS:\n`;
+            prompt += `A continuación se detallan las correspondencias exactas entre los campos del Archivo Origen y Destino, junto con sus reglas específicas de transformación:\n\n`;
+
+            state.mappings.forEach((m, idx) => {
+                const sampleA = state.fileA.samples[m.headerA] ? ` [Muestra Origen: "${state.fileA.samples[m.headerA]}"]` : '';
+                const sampleB = state.fileB.samples[m.headerB] ? ` [Muestra Destino: "${state.fileB.samples[m.headerB]}"]` : '';
+                const ruleText = m.rule ? `\n   - Regla/Instrucción: ${m.rule}` : '';
+                
+                prompt += `${idx + 1}. Column Origen: "${m.headerA}" ${sampleA}\n`;
+                prompt += `   ➔ Column Destino: "${m.headerB}" ${sampleB}${ruleText}\n\n`;
+            });
+
+            if (extra.trim() !== '') {
+                prompt += `### REGLAS ADICIONALES:\n- ${extra}\n\n`;
+            }
+
+            prompt += `### FORMATO DE SALIDA:\n`;
+            prompt += `Por favor proporciona la solución en formato: **${format.toUpperCase()}**.\n`;
+            prompt += `Asegúrate de manejar adecuadamente nulos, tipos de datos incompatibles y aplicar todas las reglas especificadas.`;
+
+            document.getElementById('promptOutput').value = prompt;
+        }
+
+        // Copy Prompt Function
+        function copyPromptToClipboard() {
+            const textarea = document.getElementById('promptOutput');
+            if (!textarea.value || state.mappings.length === 0) {
+                showToast("No hay prompt generado para copiar", true);
+                return;
+            }
+
+            // Standard ExecCommand Fallback for iframe safety
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showToast("¡Prompt copiado al portapapeles!");
+            } catch (err) {
+                showToast("Error al copiar al portapapeles", true);
+            }
+        }
+
+        // Reset Everything
+        function resetAll() {
+            state.fileA = { name: '', headers: [], samples: {} };
+            state.fileB = { name: '', headers: [], samples: {} };
+            state.selectedA = null;
+            state.selectedB = null;
+            state.mappings = [];
+
+            document.getElementById('fileInputA').value = '';
+            document.getElementById('fileInputB').value = '';
+            document.getElementById('fileNameA').innerText = 'Cargar Archivo A (Origen)';
+            document.getElementById('fileNameB').innerText = 'Cargar Archivo B (Destino/Referencia)';
+            document.getElementById('fileInfoA').innerText = 'Arrastra o haz clic para subir (.csv, .xlsx)';
+            document.getElementById('fileInfoB').innerText = 'Arrastra o haz clic para subir (.csv, .xlsx)';
+            document.getElementById('badgeA').classList.add('hidden');
+            document.getElementById('badgeB').classList.add('hidden');
+            document.getElementById('countHeadersA').innerText = '0 campos';
+            document.getElementById('countHeadersB').innerText = '0 campos';
+            document.getElementById('mappedCount').innerText = '0';
+            
+            document.getElementById('headersContainerA').innerHTML = '<div class="text-center py-12 text-slate-500 text-sm italic">Sube el Archivo A para ver sus columnas</div>';
+            document.getElementById('headersContainerB').innerHTML = '<div class="text-center py-12 text-slate-500 text-sm italic">Sube el Archivo B para ver sus columnas</div>';
+
+            renderRules();
+            drawConnections();
+            generatePrompt();
+            showToast("Aplicación reiniciada");
+        }
+
+        // String Helpers for Selectors and JS
+        function escapeSelector(str) {
+            return String(str).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+        }
+
+        function escapeJsString(str) {
+            return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+    </script>
+</body>
+</html>
